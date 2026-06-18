@@ -1,18 +1,65 @@
 import { isValidMove } from "../game/validation.js";
 import { starters } from "../helper/starters.js";
 import { prisma } from "../lib/prisma.js";
-import {winCheck} from '../game/winCheck.js'
+import { winCheck } from "../game/winCheck.js";
+import { broadcast } from "../sockets/socket.js";
 
 function getNumberFromDate(date = new Date()) {
   const ms = new Date(date).getTime();
-  return ms % 2;
+  return ms % 9;
+}
+
+function buildGamePayload(game) {
+  return {
+    gameId: game.id,
+    status: game.status,
+    board: JSON.parse(game.tabuleiro),
+    maxTurnAt: game.maxTurnAt?.toISOString() ?? null,
+    currentTurnPlayerId: game.lastPlayerId
+      ? game.jogadores.find((j) => j.jogadorId !== game.lastPlayerId)?.jogadorId ?? null
+      : game.jogadores[0]?.jogadorId ?? null,
+    players: game.jogadores.map((item) => ({
+      id: item.jogador.id,
+      nome: item.jogador.nome,
+      pontos: item.jogador.pontos,
+      erros: item.erros,
+      jogadas: item.jogadas,
+    })),
+  };
+}
+
+function createTurnDeadline(seconds = 60) {
+  return new Date(Date.now() + seconds * 1000);
+}
+
+async function invalidateMove(gameId, player, errorMessage) {
+  await prisma.jogadorPartida.update({
+    where: { id: player.id },
+    data: { erros: { increment: 1 } },
+  });
+
+  const updatedGame = await prisma.partida.update({
+    where: { id: gameId },
+    data: {
+      lastPlayerId: player.jogadorId,
+      maxTurnAt: createTurnDeadline(60),
+    },
+    include: {
+      jogadores: { include: { jogador: true } },
+    },
+  });
+
+  const payload = buildGamePayload(updatedGame);
+
+  broadcast.game(gameId, "game.updated", payload);
+
+  return { success: false, error: errorMessage, game: payload };
 }
 
 export const gameService = {
   async getGame(gameId) {
-    
     const game = await prisma.partida.findFirst({
-      where: { id: gameId }
+      where: { id: gameId },
     });
 
     if (!game) {
@@ -21,8 +68,9 @@ export const gameService = {
 
     return game;
   },
+
   async createGame(playerId) {
-    const loadedGame = starters[getNumberFromDate()];
+    const loadedGame = starters[9];
 
     const partida = await prisma.partida.create({
       data: {
@@ -72,33 +120,44 @@ export const gameService = {
       },
     });
 
-    return prisma.partida.update({
-      where: {
-        id: gameId,
-      },
+    const turnDeadline = createTurnDeadline(60);
+
+    const updatedGame = await prisma.partida.update({
+      where: { id: gameId },
       data: shouldStart
         ? {
             status: "playing",
+            maxTurnAt: turnDeadline,
           }
         : {},
       include: {
         jogadores: {
-          include: {
-            jogador: true,
-          },
+          include: { jogador: true },
         },
       },
     });
+
+    const payload = buildGamePayload(updatedGame);
+
+    broadcast.game(gameId, "game.player.joined", payload);
+
+    if (shouldStart) {
+      broadcast.game(gameId, "game.updated", payload);
+    }
+
+    return updatedGame;
   },
 
   async playMoves(gameId, playerId, moves) {
-  // 1. Validações iniciais da partida
     const game = await prisma.partida.findFirst({
       where: { id: gameId },
       include: {
-        jogadores: true,
+        jogadores: {
+          include: { jogador: true },
+        },
       },
     });
+
     if (!game) {
       return { error: "Partida não existe" };
     }
@@ -108,6 +167,7 @@ export const gameService = {
     }
 
     const player = game.jogadores.find((item) => item.jogadorId === playerId);
+
     if (!player) {
       return { error: "Jogador não pertence à partida" };
     }
@@ -120,48 +180,37 @@ export const gameService = {
       return { error: "Nenhum movimento enviado" };
     }
 
-    // 2. Criamos uma cópia do tabuleiro para testar o lote completo
-    let tempBoard = JSON.parse(game.tabuleiro);
+    const tempBoard = JSON.parse(game.tabuleiro);
 
-    // 3. Loop de Validação Estrita
     for (const move of moves) {
       const { row, col, value } = move;
 
-      // Ignora se for vazio (caso seu frontend envie células limpas)
-      if (value === "") continue;
-
-      // Se tentar preencher uma célula que JÁ estava ocupada no início do turno
-      if (tempBoard[row][col] !== "") {
-        // Incrementa 1 erro por tentativa inválida e cancela tudo
-        await prisma.jogadorPartida.update({
-          where: { id: player.id },
-          data: { erros: { increment: 1 } },
-        });
-        return { error: `Jogada inválida na posição [${row}][${col}]: Célula já preenchida.` };
+      if (value === "") {
+        continue;
       }
 
-      // Valida a regra do Sudoku (Linha, Coluna e Quadrante 3x3)
+      if (tempBoard[row][col] !== "") {
+        return invalidateMove(
+          gameId,
+          player,
+          `Jogada inválida na posição [${row}][${col}]: Célula já preenchida.`
+        );
+      }
+
       const valid = isValidMove(tempBoard, row, col, value);
 
       if (!valid) {
-        // Contabiliza o erro no banco de dados do jogador
-        await prisma.jogadorPartida.update({
-          where: { id: player.id },
-          data: { erros: { increment: 1 } },
-        });
-        
-        // Retorna o erro imediatamente, abortando o resto do lote
-        return { error: `Jogada inválida na posição [${row}][${col}]: Quebra as regras do Sudoku.` };
+        return invalidateMove(
+          gameId,
+          player,
+          `Jogada inválida na posição [${row}][${col}]: Quebra as regras do Sudoku.`
+        );
       }
 
-      // Aplica temporariamente na cópia para que a PRÓXIMA jogada do lote
-      // saiba que esse número já está posicionado (validação entre as jogadas do próprio lote)
       tempBoard[row][col] = value;
     }
 
-    // 4. Se o fluxo chegou até aqui, significa que TODO O LOTE É VÁLIDO!
-    // Contabiliza a quantidade de jogadas com sucesso de uma vez só
-    const totalJogadasSucedidas = moves.filter(m => m.value !== "").length;
+    const totalJogadasSucedidas = moves.filter((m) => m.value !== "").length;
 
     await prisma.jogadorPartida.update({
       where: { id: player.id },
@@ -172,21 +221,85 @@ export const gameService = {
 
     const complete = winCheck.isBoardComplete(tempBoard);
 
-    // 5. Atualiza o tabuleiro definitivo e passa a vez
-    return prisma.partida.update({
+    const updatedGame = await prisma.partida.update({
       where: { id: gameId },
       data: {
         tabuleiro: JSON.stringify(tempBoard),
-        lastPlayerId: playerId, // Passa o turno apenas porque tudo deu certo
+        lastPlayerId: playerId,
         status: complete ? "finished" : "playing",
+        maxTurnAt: complete ? null : createTurnDeadline(60),
       },
       include: {
         jogadores: {
-          include: {
-            jogador: true,
-          },
+          include: { jogador: true },
         },
       },
     });
-  }
+
+    const payload = buildGamePayload(updatedGame);
+
+    broadcast.game(gameId, "game.updated", payload);
+
+    if (complete) {
+      broadcast.game(gameId, "game.end", {
+        ...payload,
+        winnerId: playerId,
+      });
+    }
+
+    return { success: true, game: payload };
+  },
+
+  async gameMiss(gameId, playerId) {
+    const game = await prisma.partida.findFirst({
+      where: {
+        id: gameId,
+        status: "playing",
+        jogadores: {
+          some: { jogadorId: playerId },
+        },
+      },
+      include: {
+        jogadores: {
+          include: { jogador: true },
+        },
+      },
+    });
+
+    if (!game) {
+      return { error: "Partida não encontrada" };
+    }
+
+    if (!game.maxTurnAt || new Date() < game.maxTurnAt) {
+      return { error: "O tempo ainda não expirou" };
+    }
+
+    const missedPlayer = game.jogadores.find((j) => j.jogadorId !== playerId);
+
+    if (!missedPlayer) {
+      return { error: "Jogador não encontrado" };
+    }
+
+    await prisma.jogadorPartida.update({
+      where: { id: missedPlayer.id },
+      data: { erros: { increment: 1 } },
+    });
+
+    const updatedGame = await prisma.partida.update({
+      where: { id: game.id },
+      data: {
+        lastPlayerId: missedPlayer.jogadorId,
+        maxTurnAt: createTurnDeadline(60),
+      },
+      include: {
+        jogadores: { include: { jogador: true } },
+      },
+    });
+
+    const payload = buildGamePayload(updatedGame);
+
+    broadcast.game(game.id, "game.updated", payload);
+
+    return updatedGame;
+  },
 };

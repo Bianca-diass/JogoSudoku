@@ -16,6 +16,8 @@ export function initSocket(io) {
   });
 }
 
-export function emit(channel, event, data) {
-  ioInstance.to(channel).emit(event, data);
-}
+export const broadcast = {
+  game(gameId, event, payload = {}) {
+    ioInstance.to(`game.${gameId}`).emit(event, payload);
+  },
+};

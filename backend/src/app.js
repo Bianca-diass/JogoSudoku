@@ -87,6 +87,25 @@ app.post("/game/move", async (req, res) => {
   }
 });
 
+app.post("/game/miss", async (req, res) => {
+  try {
+    const { gameId, playerId } = req.body;
+
+    const result = await gameService.gameMiss(gameId, playerId);
+
+    if (result?.error) {
+      return res.status(400).json(result);
+    }
+
+    return res.json(result);
+  } catch (error) {
+    return res.status(500).json({
+      message: error.message,
+    });
+  }
+});
+
+
 // PLAYER
 
 app.post("/player/create", async (req, res) => {

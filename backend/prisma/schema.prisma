@@ -21,6 +21,7 @@ model Partida {
   tabuleiro    String
   lastPlayerId String?
   criadoEm     DateTime         @default(now())
+  maxTurnAt       DateTime?
   // Relação: Uma partida tem muitos jogadores vinculados
   jogadores    JogadorPartida[] // <--- Isso resolve o seu erro do include!
 }

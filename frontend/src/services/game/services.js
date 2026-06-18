@@ -32,4 +32,12 @@ export const gameService = {
 
     return data;
   },
+  async miss(gameId, playerId){
+    const { data } = await api.post("/game/miss", {
+      gameId,
+      playerId
+    });
+
+    return data;
+  }
 };
