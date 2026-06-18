@@ -1,29 +1,41 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
 datasource db {
   provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
-generator client {
-  provider = "prisma-client-js"
-}
-
 model Jogador {
-  id     String @id @default(cuid())
-  nome   String
-  pontos Int    @default(0)
+  id       String           @id @default(cuid())
+  nome     String
+  pontos   Int              @default(0)
+  // Relação: Um jogador pode participar de muitas partidas
+  partidas JogadorPartida[]
 }
 
 model Partida {
-  id        String   @id @default(cuid())
-  status    String   @default("aguardando")
-  tabuleiro String
-  criadoEm  DateTime @default(now())
+  id           String           @id @default(cuid())
+  status       String           @default("aguardando")
+  tabuleiro    String
+  lastPlayerId String?
+  criadoEm     DateTime         @default(now())
+  // Relação: Uma partida tem muitos jogadores vinculados
+  jogadores    JogadorPartida[] // <--- Isso resolve o seu erro do include!
 }
 
 model JogadorPartida {
-  id         String @id @default(cuid())
-  jogadorId  String
-  partidaId  String
-  erros      Int    @default(0)
-  jogadas    Int    @default(0)
+  id        String @id @default(cuid())
+  jogadorId String
+  partidaId String
+  erros     Int    @default(0)
+  jogadas   Int    @default(0)
+
+  // Mapeamento das chaves estrangeiras com os models principais
+  jogador   Jogador @relation(fields: [jogadorId], references: [id], onDelete: Cascade)
+  partida   Partida @relation(fields: [partidaId], references: [id], onDelete: Cascade)
+
+  // Garante que o mesmo jogador não entre duas vezes na mesma partida
+  @@unique([jogadorId, partidaId])
 }

@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { playerService } from "../services/player/service";
+import { gameService } from "../services/game/services";
 
 function Home() {
   const navigate = useNavigate();
@@ -8,33 +10,46 @@ function Home() {
   const [joinId, setJoinId] = useState("");
   const [showModal, setShowModal] = useState(false);
 
-  const createGame = () => {
+  const createGame = async () => {
     if (!playerName.trim()) {
       alert("Digite seu nome");
       return;
     }
 
-    const gameId = Date.now().toString();
+    try {
+      const player = await playerService.create(playerName)
 
-    localStorage.setItem("playerName", playerName);
+      localStorage.setItem('playerId',player.id)
+      localStorage.setItem('playerName',player.nome)
 
-    navigate(`/jogo/${gameId}`);
+      const game = await gameService.create({playerId:player.id})
+
+      navigate(`/jogo/${game.id}`);
+    } catch (error) {
+        console.log(error)
+        alert('Erro ao criar partida')
+    }
   };
 
-  const joinGame = () => {
+  const joinGame = async () => {
     if (!playerName.trim()) {
       alert("Digite seu nome");
       return;
     }
 
-    if (!joinId.trim()) {
-      alert("Digite o ID da partida");
-      return;
+    try {
+      const player = await playerService.create(playerName)
+
+      localStorage.setItem('playerId',player.id)
+      localStorage.setItem('playerName',player.nome)
+
+      const game = await gameService.joinGame(joinId,player.id)
+
+      navigate(`/jogo/${joinId}`);
+    } catch (error) {
+        console.log(error)
+        alert('Erro ao tentar se juntar a partida')
     }
-
-    localStorage.setItem("playerName", playerName);
-
-    navigate(`/jogo/${joinId}`);
   };
 
   return (

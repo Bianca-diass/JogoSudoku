@@ -1,18 +1,13 @@
-const { PrismaClient } = require("@prisma/client");
+import { prisma } from "../lib/prisma.js";
 
-const prisma = new PrismaClient();
-
-class PlayerService {
+export const playerService = {
   async create(data) {
-    const player = await prisma.player.create({
+    const player = await prisma.jogador.create({
       data: {
-        name: data.name,
-        link: data.link,
+        nome: data.nome,
       },
     });
 
     return player;
-  }
-}
-
-module.exports = new PlayerService();
+  },
+};

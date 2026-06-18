@@ -1,18 +1,10 @@
 import { useState } from "react";
 
-export default function SudokuGrid() {
+
+
+export default function SudokuGrid({grid}) {
   // 🧠 valores iniciais (exemplo de sudoku simples)
-  const initialGrid = [
-    ["5", "", "", "", "7", "", "", "", ""],
-    ["6", "", "", "1", "9", "5", "", "", ""],
-    ["", "9", "8", "", "", "", "", "6", ""],
-    ["8", "", "", "", "6", "", "", "", "3"],
-    ["4", "", "", "8", "", "3", "", "", "1"],
-    ["7", "", "", "", "2", "", "", "", "6"],
-    ["", "6", "", "", "", "", "2", "8", ""],
-    ["", "", "", "4", "1", "9", "", "", "5"],
-    ["", "", "", "", "8", "", "", "7", "9"],
-  ];
+  const initialGrid = grid;
 
   // células fixas (não podem ser alteradas)
   const fixedCells = initialGrid.map(row =>

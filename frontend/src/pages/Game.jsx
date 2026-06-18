@@ -1,7 +1,10 @@
+import { useEffect, useState } from "react";
 import Stats from "../components/Stats";
 import SudokuGrid from "../components/SudokuGrid";
 
 export default function Game() {
+
+ 
 
   return (
     <div className="container">
@@ -10,7 +13,7 @@ export default function Game() {
 
       <Stats />
 
-      <SudokuGrid />
+      <SudokuGrid grid={grid}/>
 
     </div>
   );
