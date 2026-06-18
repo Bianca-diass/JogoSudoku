@@ -1,5 +1,5 @@
 export function isValidMove(board, row, col, value) {
-  if (value === "") return false;
+  if (value === "") return true;
 
   // 🔴 1. checar linha
   for (let i = 0; i < 9; i++) {

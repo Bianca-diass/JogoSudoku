@@ -32,6 +32,18 @@ function createTurnDeadline(seconds = 60) {
   return new Date(Date.now() + seconds * 1000);
 }
 
+// Retorna o id do jogador com menos erros; em caso de empate, quem fez mais jogadas
+function resolveWinner(jogadores) {
+  const [a, b] = jogadores;
+
+  if (a.erros !== b.erros) {
+    return a.erros < b.erros ? a.jogadorId : b.jogadorId;
+  }
+
+  // Desempate: mais jogadas (mais contribuição pro board)
+  return a.jogadas >= b.jogadas ? a.jogadorId : b.jogadorId;
+}
+
 async function invalidateMove(gameId, player, errorMessage) {
   await prisma.jogadorPartida.update({
     where: { id: player.id },
@@ -185,18 +197,6 @@ export const gameService = {
     for (const move of moves) {
       const { row, col, value } = move;
 
-      if (value === "") {
-        continue;
-      }
-
-      if (tempBoard[row][col] !== "") {
-        return invalidateMove(
-          gameId,
-          player,
-          `Jogada inválida na posição [${row}][${col}]: Célula já preenchida.`
-        );
-      }
-
       const valid = isValidMove(tempBoard, row, col, value);
 
       if (!valid) {
@@ -212,6 +212,7 @@ export const gameService = {
 
     const totalJogadasSucedidas = moves.filter((m) => m.value !== "").length;
 
+    // Atualiza jogadas antes de buscar o updatedGame, para o resolveWinner ter os dados corretos
     await prisma.jogadorPartida.update({
       where: { id: player.id },
       data: {
@@ -241,9 +242,12 @@ export const gameService = {
     broadcast.game(gameId, "game.updated", payload);
 
     if (complete) {
+      // Vencedor = quem tiver menos erros (desempate: mais jogadas)
+      const winnerId = resolveWinner(updatedGame.jogadores);
+
       broadcast.game(gameId, "game.end", {
         ...payload,
-        winnerId: playerId,
+        winnerId,
       });
     }
 
